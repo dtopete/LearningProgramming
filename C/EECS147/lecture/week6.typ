@@ -116,3 +116,140 @@ N[p*TILE_WIDTH + ty][Col]
 -- when width is used to refer to width of M or height of N, replace it with k
 
 -- when width is used to refer to width of N or width of P, replace it with i
+
+#pagebreak()
+= Midterm Solutions
++ Thread and block question
+    - How many warps in a block , 256/32 = 8 warps
+    - How many tortal threads, 32*256 = 8192 threads
+
++ vecAddKernel question
+    - int i = 8(threadIdx.x + blockDim.x*blockIdx.x);
++ Can vector add be made faster with shared memory?
+    - No, because each thread is only accessing one element of the input arrays, so there is no reuse of data that would benefit from shared memory. The overhead of loading data into shared memory would likely outweigh any potential performance gains.
+    - You would be doing a second memory copy for no reason, no benefit
+
++ Reduction 1,000 elements and block size of 256 threads
+    - Reduction will take 9 steps, 256->128->64->32->16->8->4->2->1 
+    - How many steps are divergent, 5 of them, ceiling function
+    - Optimized kernel, warp distribution has 20 for W1, W2, W4, W8. Those are 5 divergent steps, because 1,000/256/2 = 20. 1 from each block.
+        - This ges to show that 
++ The ones that don't diverge are D and E
+    - Which one would you move in front of another one? Move D after F or G, but not under H
+    - If SegSize = 256, and n = 8192, how many VecAdd kernels will launch? 8192/256 = 32 kernels, because we are doing a reduction, so we are halving the number of elements each time.
+
++ CUDA device's SM can take up 2048 threads and up to 32 thread blocks. which of the following 2D block config would be result in greatest number of threads in each SM
+    - 32x32
++ How many streams to utilize all the kernel and copy engines on the GPU
+    - Minimun of 3, but 4 isn't wrong
+
++ Going host to device
+    - Host Mem -> Pinned Memory -> DMA Engine -> Global Memory
+
++ Memory type with fastests access speed 
+    - Registers, they are on chip
+
++ Dev functions are only callable from kernel/device
++ cudaMemCopy is synchronous
++ Blocks don't depend on each other
++ SIMT core doesn't have 4 independent schedulers
++ all cudamemcpy 
++ Not true that max number of threads and blocks can reside in an SM is fixed per GPU vender
+
++ 2D kernel operate an ijmage of 500x800, assume thread block 16x16
+    - x-dimension of grid size, 50
+    - y-dim of grid size, 32
+    - Warps will be divergent in this scenario, 0
+
++ Active Mask questions were quite easy
++ Assume kernel is launched with 100 thread blocks, each with 512 threads,
+    - There will be 1 per block, so 100 blocks. 100 variations of s_var
+
+#pagebreak()
+
+= Memory Performance - Thursday Lecture
+
+- Global Memory (DRAM) bandwidth
+- It seems like there's a flood gate, but it really is a small straw
+- Can't really program programs that way
+- A very small (8x2-bit) DRAM core array
+    - Programs generally have data locality, so we can take advantage of that to improve performance. We can use shared memory to load data into on-chip memory, and then access it from there, which can significantly reduce the number of global memory accesses and improve performance.
+
+- DRAM core arrays are slow, reading from a cell in core array is a slow process
+    - DDR: Core speed = $1/2$ interface speed
+    - DDR2/GDDR3: Core speed = $1/4$ interface speed
+    - DDR3/GDDR5: Core speed = $1/8$ interface speed
+    - We are busy making things faster and tinier
+
+- Do bursts of DRAM memory transfer
+- DDR{2,3} SDRAM cores are clocked at 1/N speed of this interface:
+    - DDR2: N = 4
+    - DDR3: N = 8
+    - GDDR5: N = 8
+    - Loan N $crossmark$ of SDRAM
+
+- Without DRAM bursts, we would spend a lot of time reading time from the core array, which is slow. By doing bursts, we can amortize the cost of reading from the core array over multiple data transfers, which can significantly improve performance.
+- If we don't have bursts, we are reading all this data and doing only one transfer at a time for each read.
+Doing bursts of doing transfers after another, so transfer out all the data after a buffer is full
+
+== Multiple DRAM Banks
+- Having multiple DRAM banks allows us to have multiple memory accesses in flight at the same time, which can help hide latency and improve performance. Each bank can be accessed independently, so if one bank is busy servicing a request, we can still access other banks.
+- When one bank is transfering, have another one loading/reading in data
+- This is good for making sure the memory interface is not idle and great utilization of memory bandwidth
+- Each bank has a row cache
+
+== DRAM Bursts - A System View
+- First brust does data 0-3, then 4-7, then 8-11, then 12-15
+- Each address space is partitioned into burst sections
+
+== Memory Coalescing
+- When threads in a warp access memory, if they access *contiguous memory addresses*, the memory accesses
+== Uncoalesced Accesses
+- When accessed locations spread across bursts section boundaries:
+    - Coalescing is not possible, and each thread's access results in a separate memory transaction, which can significantly reduce performance.
+    - Multiple DRAM requests are made
+    - The access is not fully coalesced, and we end up with multiple memory transactions, which can significantly reduce performance.
+- Some bytes accessed and transferred are not used by the threads, which can also reduce performance.
+- When threads in a warp access memory, if they access contiguous memory addresses, the memory accesses
+- This is when there loads are not correctly aligned and the bursts is missing some data and skipping it instead of doing the 4 consecutive elements at a time.
+
+== How to judge if access is coalesced or not?
+- Access in a warp are to consecutive locations if the index in an array access is in the form of
+    - A[threadIdx.x + blockDim.x*blockIdx.x], where the thread index is the fastest changing index, and the block index is the slowest changing index. This ensures that threads in a warp access contiguous memory addresses, which allows for coalescing and can significantly improve performance.
+
+== Basic Mat Mul
+- Get one row and one column, and do the dot product to get one element of the output matrix. This is a simple and straightforward way to perform matrix multiplication, but it may not be the most efficient way to do it, especially for large matrices.
+- The Matrix B in the diagram, where they are going veritical, these are coalesced accesses, because the threads in a warp are accessing contiguous memory addresses. However, the Matrix A in the diagram, where they are going horizontal, these are not coalesced accesses, because the threads in a warp are not accessing contiguous memory addresses. This can significantly reduce performance.
+- Access in Mat A is growing sideways but each access is a row apart, but this is important because we are using two threads, and these threads are a row apart 
+    - Meanwhile, matrix B of +2 memory locations ahead of each other instead of a row apart
+
+== Tiling also optimized for coalescing
+- You can tell in the code when it is coalesced when in the code, we have a +tx term
+    - Then everything else is independent from tx, which means that the threads in a warp are accessing contiguous memory addresses, which allows for coalescing and can significantly improve performance.
+    - As long as the tx term is independent, we should have independent memory access
+- *May be on the final for detecting coalesced access*
+
+#pagebreak()
+= Modern GPU Memory
+- We are covering HBM memory in the workstation GPUs, different from GDDR consumer GPU memory
+
+== GDDR 6 vs 7 
+- Higher data rate
+- Different signaling
+    - PAM3 signaling had two bits of data, 11, 01, and 00
+    - PAM4 has GDDR7 and had two bits of data, sending out 4 bits worth of data, 11, 10, 00, 01
+- More channels
+
+== HBM Technology
+- It is physically on the chip of the GPU meanwhile GDDR is on a separate chip, which means that HBM has much higher bandwidth and lower latency than GDDR. HBM also has a much smaller form factor than GDDR, which allows for more memory to be packed into a smaller space, which can be beneficial for high-performance computing applications.
+- HBM is stacked memory, which means that multiple layers of memory are stacked on top of each other, and they are connected by through-silicon vias (TSVs). This allows for
+- They are stacked in the base package substrate, they call it 3D (or 2.5D) stacking
+- GDDR uses an interconnect to move data into the device, and farther away from the GPU, while HBM is on the same package as the GPU, which allows for much higher bandwidth and lower latency.
+
+== Infinity Cache
+- It keeps using more and more cache, and it is a large on-chip cache that is used to store frequently accessed data, which can help improve performance by reducing the number of memory accesses to the slower global memory. The Infinity Cache is designed to be a high-bandwidth, low-latency cache that can help improve performance for a wide range of applications, including gaming, machine learning, and high-performance computing.
+
+== Modern GPU memory consideration
+- Modern GPUs can be sliced up (Nvidia MIG, AMD Partitions)
+- They support partitioning of memory, so that different applications can have their own partition of memory, which can help improve performance and reduce contention between applications. This is especially important in multi-tenant environments, where multiple applications are running on the same GPU.
+- Each GPU Instance has it's own slices 
