@@ -133,4 +133,25 @@ SECTION (#underline[SectionIdentifier], CourseNumber, Semester, Year, Instructor
 GRADE_REPORT (#underline[StudentNumber], #underline[SectionIdentifier], Grade)\
 
 1. Retrieve the names and majors of all ‘A’ students (i.e., students who have a grade of ‘A’ in all their courses).
+```SQL
+SELECT s.Name, s.Major
+FROM STUDENT s
+WHERE NOT EXISTS (
+  SELECT *
+  FROM GRADE_REPORT g
+  WHERE g.StudentNumber = s.StudentNumber
+  AND g.Grade <> 'A'
+)
+```
 2. Retrieve the names and majors of all students who do not have a grade of ‘A’ in any of their courses
+```SQL
+SELECT s.Name, s.Major
+FROM STUDENT s
+-- Removes all students with an 'A' grade in any course
+WHERE NOT EXISTS (
+  SELECT *
+  FROM GRADE_REPORT g
+  WHERE g.StudentNumber = s.StudentNumber
+  AND g.Grade = 'A'
+)
+```
