@@ -165,3 +165,136 @@ if (threadIdx.x < 7) {
 
 *Histogram will be assignment 4, the code is on the slides*
 - Mat Mul is one of the trickier assignments, start is now
+
+#pagebreak()
+= Thursday week 6 Lecture
+
+= Multi GPU
+Minimal review on streams and asynch API
+- We can do the memory transfer in one stream, and then do the kernel execution in another stream, and then we can use events to synchronize between the two streams
+- This allows us to overlap the memory transfer and kernel execution, which can improve performance
+- Asynch memcopy don't overlap unless you use streams and events to synchronize between the memory transfer and kernel execution.
+- If you do not use streams and events to synchronize between the memory transfer and kernel execution, then the memory transfer and kernel execution will be serialized, which can lead to a performance bottleneck
+
+Communication for single host, multi GPU
+- If you have multiple GPUs on the same host, you can use CUDA's peer-to-peer (P2P) communication to allow the GPUs to communicate directly with each other without going through the CPU
+- This can improve performance because it allows the GPUs to communicate directly with each other without going through the CPU
+- We are issuing CUDA calls to a single GPU
+- P2P mem copy
+```C
+cudaMemcpyPeer(void *dest_addr, int dst_device,
+                void *src_addr, int src_device,
+                size_t count, cudaStream_t stream);
+```
+- Copies data between two devices without going through the host
+- Currently data is "pushed" from source test GPU's DMA engine carries ou thte copy
+- There is also blocking (as opposed to Async) version 
+If peer-access is enabled
+- Bytes are transferred along shortest PCIe path
+- No staging through CPU memory
+
+
+- we need to enable P2P access between the GPUs using the `cudaDeviceEnablePeerAccess` function, and then we can use the `cudaMemcpyPeer` function to copy data between the GPUs without going through the host
+- We need to enable peer access because we don't want GPUs to transfer data,
+   - If it is enabled, a hacker on a GPU server can access the memory of another GPU, which can lead to security vulnerabilities
+   - If it is not enabled, then the GPUs will have to transfer data through the host, which can lead to a performance bottleneck
+   - Less likely to have malicious code on the GPU and have it access memory from another GPU
+  
+How does P2P memcopy help multi-GPU applications?
+- Ease of Programming: It allows developers to write code that can easily transfer data between GPUs without having to worry about the underlying communication details
+- Performance: It can improve performance by allowing GPUs to communicate directly with each other without going through
+- INcrease throughput: Especially when GPUs are connected to a PCIe switch, which can provide high bandwidth and low latency communication between the GPUs
+- SIngle directional transfer can achieve up to 6.6Gb/s (12 GB/s gen 3), which is much faster than transferring data through the host
+- Bidirectional transfer can achieve up to 22 GB/s for gen3, which is much faster than transferring
+  - Meanwhile 5 GB/s if going through host
+
+Example: 1D Domain Decomposition and P2P
+- Each subdomain has at most two neighbors
+  - "Left" and "Right" neighbors
+  - Communication graph = path 
+
+We would have 4 GPUs, GP0 and GP1 are connected through a PCIe switch, and GP2 and GP3 are connected through another PCIe switch, and then the two PCIe switches are connected to each other through a PCIe bridge (Tree like topology)
+- This architecture explains to "left" and "right" neighbors, because GP0 and GP1 are connected to each other, and GP2 and GP3 are connected to each other, but GP0 and GP2 are not directly connected to each other, so they are not neighbors
+- For GP2 to talk to GP1, it would have to go through the GP2-GP2 birdge and enter the GP0-GP1 switch to talk to GP1, which can lead to a performance bottleneck because it has to go through multiple hops to communicate between the GPUs
+
+Code for Left-Right Approach
+Below unfinished
+```C
+for (int i= 0; i < num_gpus; ++i){
+  cudaMemcpyPeerAsync(d_a[i+1], left_neighbor_gpu_id[i], d_a[i], local_gpu_id,
+                      buffer_size, stream[i]);
+}
+```
+
+#pagebreak()
+== Host (CPU) NUMA and CPU/GPU Transfers
+- NUMA = Non-Uniform Memory Access
+- CPU NUMA affects PCIe transfer throughput in dual-IOH systems
+  - Transfer to "remote" GPUs achieve lower throughput than transfer to "local" GPUs
+- NUMA-aware GPU selection can improve performance by selecting the GPU that is local to the CPU, which can provide higher throughput for CPU-GPU transfers
+- With servers with multiple GPUs and multiple CPUs, it is important to be aware of the NUMA architecture of the system and to select the GPU that is local to the CPU to improve performance for CPU-GPU transfers
+- "Local" D2D copy: 6.3 GB/s (D2H and H2D for 5.7GB/s)
+- "Remote" D2H Copy: 4.3 GB/s (D2H and 4.9 GB/s for H2D)
+=== There are three different routes for GPUs to talk to each other 
+- Local GPU to local GPU: This is the fastest route because it allows the GPUs to communicate directly with each other without going through the host
+- Local GPU to remote GPU: This is slower than local GPU to local GPU because it has to go through the host to communicate between the GPUs
+- Remote GPU to remote GPU: This is the slowest route because it has to go through the host to communicate between the GPUs, and it also has to go through the PCIe bridge to communicate between the GPUs, which can lead to a performance bottleneck
+```C
+// Local GPU to local GPU
+cudaMemcpyPeerAsync(d_a[i+1], left_neighbor_gpu_id[i], d_a[i], local_gpu_id,
+                      buffer_size, stream[i]);
+// Local GPU to remote GPU
+cudaMemcpyPeerAsync(d_a[i+1], right_neighbor_gpu_id[i], d_a[i], local_gpu_id,
+                      buffer_size, stream[i]);
+// Remote GPU to remote GPU
+cudaMemcpyPeerAsync(d_a[i+1], right_neighbor_gpu_id[i], d_a[i], local_gpu_id,
+                      buffer_size, stream[i]);
+```
+- Via PCI Switch (This is local GPU to local GPU communication, which is the fastest route)
+- Via IOH Chip (This is local GPU to remote GPU communication, which is slower than local GPU to local GPU communication)
+  - This route goes through a PCIe bridge of two GPUs
+- Via CPU (This is remote GPU to remote GPU communication, which is the slowest route), especially because it is hGPU to hCPU to rCPU to rGPU, which can lead to a performance bottleneck because it has to go through multiple hops to communicate between the GPUs
+
+#pagebreak()
+== GPUs become more specialized
+- Modern GPU "Processing Units" (PUs) are designed for specific tasks
+- Graphics PUs: Optimized for rendering graphics and visual effects
+- Compute PUs: Optimized for general-purpose computing tasks, such as scientific simulations and machine learning
+- AI PUs: Optimized for artificial intelligence workloads, such as deep learning and neural network inference
+- Specialized PUs can provide higher performance for their specific workloads, but they may not be as versatile as general-purpose GPUs, which can lead to trade-offs in performance and flexibility for different workloads
+- 32 Threads
+- 16 INT 
+- 16 Single-Precision FP
+- 16 Double-Precision FP
+- 16 Tensor Cores (Mixed Precision FP16/FP32)
+
+GPU STreaming Multiprocessor (SM) Architecture
+- COntains 4 "Processing Blocks"
+- Each independently schedules
+
+GPU Hardware
+- V100 has 80 SMs, and each SM has 4 processing blocks, so it has a total of 320 processing blocks
+- 5376 FPU
+- Peak 15.7 TFLOPS
+
+GPU "Data Center in a box"
+*DGX*
+- A multi-GPU "Node"
+- 300GB/s interconnect between GPUs
+
+GPU
+
+DGX came to be because GPU inter-connect is complex and there are NUMA issues
+
+=== Accelerator topology is Diverse
+- GPUs were the first accelerators, but now there are many different types of accelerators, such as FPGAs, TPUs, and ASICs, which are designed for specific workloads and can provide higher performance for those workloads
+- Now there are many different types of accelerators and they each have diverse topologies
+- Topologies such as Summit (ORNL) for multi-GPU systems, and Cerebras for multi-accelerator systems, which have different interconnects and communication patterns between the accelerators, which can lead to different performance characteristics for different workloads.
+  - Each GPU is connect to each other, but communicate to another CPU if it is in another system
+- Then a DGX-1 / Big Basin system where every GPU is connected to each other, even passing through CPUs
+  - Advanced version of the ORNL
+
+- NVLink: Fast communication between GPUs
+
+NCCL: Accelerated Multi-GPU collective communication library
+- Takes care of multi-GPU communication and synchronization for you, which can improve performance and ease of programming for multi-GPU applications
