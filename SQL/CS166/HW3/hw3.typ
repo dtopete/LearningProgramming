@@ -29,15 +29,7 @@ Write the following Queries in SQL:
   FROM employee e, works w, company c
   WHERE e.employee-name = w.employee-name
   AND w.company-name = c.company-name
-  -- Below outputs employees who work in the same city as their company, so we use NOT EXISTS to get those who work in a different city
-  WHERE NOT EXISTS (
-    SELECT *
-    FROM employee e2, works w2, company c2
-    WHERE e2.employee-name = w2.employee-name
-    AND w2.company-name = c2.company-name
-    AND e2.employee-name = e.employee-name
-    AND c2.city = c.city
-  )
+  AND e.city <> c.city; -- A "now equal" comparison operator
   ```
 + Find the name of employees who earn less than the average salary of their company.
   ```SQL
@@ -56,13 +48,18 @@ Write the following Queries in SQL:
   image("schema2.png"),
   caption: [Database Schema for Problem 2]
 )
+EMPLOYEE (FNAME, LNAME, #underline[SSN], BDATE, ADDRESS, SEX, SALARY, SUPERSSN, DNUM) \
+DEPARTMENT (DNAME, #underline[DNUMBER], MGRSSN, MGRSSTARTDATE) \
+DEPT_LOCATIONS (#underline[DNUMBER, DLOCATION]) \
+WORKS_ON (#underline[ESSN, PNO], HOURS) \
+PROJECT (PNAME, #underline[PNUMBER], PLOCATION, DNUM) \
+DEPENDENT(#underline[ESSN, DEPENDENT_NAME], SEX, BDATE, RELATIONSHIP) \
 
 1. For departments with an average salary greater than \$50,000, list the department name and the average salary of employees in each department.
 ```SQL
 SELECT d.dname, AVG(w.salary) AS average_salary
-FROM department d, employee e, works w
+FROM department d, employee e
 WHERE d.DNUMBER = e.DNUM
-AND e.SSN = w.ESSN
 GROUP BY d.dname
 HAVING AVG(w.salary) > 50000
 ```
@@ -70,14 +67,10 @@ HAVING AVG(w.salary) > 50000
 ```SQL
 SELECT e.fname, e.lname
 FROM employee e
-WHERE NOT EXISTS (
-  SELECT *
-  FROM project p, works_on w, department d
-  WHERE e.SSN = w.ESSN
-  AND d.dnumber = p.dnum
-  AND p.pnumber = w.pnum
-)
+WHERE NOT EXISTS (SELECT * FROM works_on w WHERE e.SSN = w.ESSN)
 ```
+
+#pagebreak()
 3. Retrieve the last names of employees who share a birthday with at least one of their dependents.
 ```SQL
 SELECT DISTINCT e.lname
@@ -88,29 +81,31 @@ AND e.BDATE = d.BDATE
 // Enforce the: At least one employee has a dependent with the same birthday constraint
 // I believe DISTINCT is sufficient to ensure that we only get unique last names of employees who share a birthday with at least one of their dependents.
 
-#pagebreak()
-
 4. Find the first and last names of employees who work on every project in the "Houston" location.
 ```SQL
 SELECT e.fname, e.lname
 FROM employee e
--- Below outputs employees who do not work on any project in Houston, so we use NOT EXISTS to get those who work on every project in Houston
 WHERE NOT EXISTS (
+  -- Find a Houston Project
   SELECT *
-  FROM project p, department d, works_on w
-  WHERE p.pnumber = w.pnum
-  AND w.ESSN = e.SSN
-  AND d.dnumber = p.dnum
-  AND d.dlocation = 'Houston'
+  FROM project p
+  WHERE p.PLOCATION = 'Houston'
+  AND NOT EXISTS (
+    -- That the current employee does NOT work on
+    SELECT *
+    FROM works_on w
+    WHERE w.ESSN = e.SSN
+    AND w.PNO = p.PNUMBER
 )
 ```
 5. For each department, list the department name and the number of employees who work in that department.
 ```SQL
 SELECT d.dname, COUNT(e.SSN) AS num_employees
-FROM department d, employee e
-WHERE d.DNUMBER = e.DNUM
-GROUP BY d.dname
+FROM department d
+LEFT JOIN employee e ON d.DNUMBER = e.DNUM
+GROUP BY d.dnumber, d.dname;
 ```
+
 6. List the last names of all employees who have no dependents
 ```SQL
 -- No need for DISTINCT because E with no D only appear once
@@ -141,6 +136,12 @@ WHERE NOT EXISTS (
   FROM GRADE_REPORT g
   WHERE g.StudentNumber = s.StudentNumber
   AND g.Grade <> 'A'
+)
+-- Making sure they at least have one grade on record
+AND EXISTS (
+  SELECT *
+  FROM GRADE_REPORT g2
+  WHERE g2.StudentNumber = s.StudentNumber
 )
 ```
 2. Retrieve the names and majors of all students who do not have a grade of ‘A’ in any of their courses
