@@ -200,7 +200,7 @@ Implement:
 
 - GPU Cryptography (Hashing / Encryption)
 
-- GPU Compression / Decompression Engine
+- GPU Compression / Decompre:qssion Engine
 -- Seems very interesting
 
 -- Parallel decompression of large files using GPU
@@ -209,7 +209,7 @@ Implement:
 -- Start: Spheres + Basic light
 
 - Real-Time Volumetric Rendering (Fog/Smoke)
--- Rendering fog, smoke, clouds
+-- Rendering fog, smoke, clouds:
 
 -- Simulating light scattering
 
